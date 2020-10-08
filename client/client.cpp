@@ -73,12 +73,27 @@ int create_socket(char* host, char* portstr){
 	return fd;
 }
 
+size_t sendToServ(int sockFD, void * toSend, int size){
+
+	std::cout << "in send function" << std::endl;
+	int bytesSent;
+
+	bytesSent = send(sockFD, toSend, size, 0) ;
+	if (bytesSent == -1) {
+		std::cerr << "Error Sending To Server: " << strerror(errno) << std::endl;
+	}
+
+	std::cout << "Sent " << bytesSent << " bytes " << std::endl;
+	return bytesSent;
+
+}
+
 void handle_user_connection(int servFD, char* username){
 	// send length 
 	short int userlen = strlen(username) + 1;
-	send(servFD, (void*)&userlen, sizeof(userlen), 0);
+	sendToServ(servFD, (void*)&userlen, sizeof(userlen));
 	// send username
-	send(servFD, username, strlen(username)+1, 0);
+	sendToServ(servFD, username, strlen(username)+1);
 	// determine if we need to create new password
 	int resp;
 	recv(servFD, (void *)&resp, sizeof(int), 0);
@@ -91,12 +106,14 @@ void handle_user_connection(int servFD, char* username){
 			std::cout << "Existing user\n";
 			std::cout << "Enter password: ";
 			std::cin >> password;
-			// send length
+			// send length (including null character)
 			short int passlen = password.length()+1;
-			send(servFD, (void *)&passlen, sizeof(short int), 0);
+			std::cout << "Password length to send: " << passlen << std::endl;
+			sendToServ(servFD, (void *)&passlen, sizeof(short int));
 			// send password
-			//char *c_pass = password.c_str();
-			send(servFD, (void *)&password, passlen, 0);
+			const char * c_pass = password.c_str();
+			std::cout << "Your Password: " << c_pass << std::endl;
+			sendToServ(servFD, (void *)c_pass, passlen);
 			// recieve confirmation if password was accepted
 			recv(servFD, (void *)&resp, sizeof(int), 0);
 			if (resp == 0)
@@ -110,9 +127,10 @@ void handle_user_connection(int servFD, char* username){
 		std::cin >> password;
 		// send length
 		short int passlen = password.length()+1;
-		send(servFD, (void *)&passlen, sizeof(short int), 0);
+		sendToServ(servFD, (void *)&passlen, sizeof(short int));
 		// send password
-		send(servFD, (void *)&password, passlen, 0);
+		const char * c_pass = password.c_str();
+		sendToServ(servFD, (void *)c_pass, passlen);
 	}
 }
 
