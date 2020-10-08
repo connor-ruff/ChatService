@@ -1,6 +1,7 @@
 // Ryan Wigglesworth - rwiggles
 // Kelly Buchanan - kbuchana
 // Connor Ruff - cruff
+#include "../pg3lib.h"
 #include<iostream>
 #include<string>
 #include<stdio.h>
@@ -20,13 +21,15 @@
 
 struct userInfo {
 	std::string UN;
-	std::string passHash;
-}
+	std::string PW;
+};
 
-char * parseArgs(int, char **);
-int getSock(std::string);
-void * connection_handler(void *cliSockIn);
-void * getCliMsg(int cliSock, int recSize);
+char *  parseArgs(int, char **);
+int     getSock(std::string);
+void *  connection_handler(void *cliSockIn);
+void *  getCliMsg(int cliSock, int recSize);
+size_t  sendToCli(void *, int, int);
+int     storeUserInfo(struct userInfo);
 struct userInfo checkUserbase(char * userNameIn);
 
 int main(int argc, char ** argv){
@@ -48,7 +51,7 @@ int main(int argc, char ** argv){
 
 		std::cout << "Accepted Connection\n" ; // TODO debug info
 
-		if ( pthread_create( &thread_id, NULL, connection_handler, (void *)&client_sock) < 0) {
+		if ( pthread_create( &thread_id, NULL, connection_handler, (void *)&cliSock) < 0) {
 			std::cerr << "Could Not Create Thread" << std::endl;
 			continue;
 		}
@@ -76,16 +79,18 @@ void * getCliMsg(int cliSock, int recSiz){
 		std::exit(-1);
 	}
 
+        std::cout << "BUF: " << received << std::endl;
+
 	buf[received] = '\0';
 	void * ret = buf;
 	return ret;
 }
 
-std::string checkUserbase(char * userNameIn){
+struct userInfo checkUserbase(char * userNameIn){
 
 	struct userInfo user;
 	user.UN = "";
-	user.passHash = "";
+	user.PW = "";
 
 	std::string userName(userNameIn);
 	// Search Through File
@@ -100,44 +105,93 @@ std::string checkUserbase(char * userNameIn){
 	std::string line;
 	std::string delim = ",";
 	std::string token;
-	while(getline(ifs, line) {
+	while(getline(ifs, line)) {
 		token = line.substr(0, line.find(delim));
 		if ( token.compare(userName) == 0 ){
 			// set user info
 			user.UN = token;
-			user.passHash = line.substr(line.find(delim)+1);
+			user.PW = line.substr(line.find(delim)+1);
 			break;
 		}
 	}
+
+        ifs.close();
 	
 	return user;
 
 	
 }
 
-size_t sendToCli(
+int storeUserInfo(struct userInfo user) {
+    
+    return 0;
+}
+
+size_t sendToCli(void * toSend, int len, int cliFD){
+    size_t sent = send(cliFD, toSend, len, 0);
+	if ( sent == -1 ) {
+		std::cerr << "Error Sending Info To Client: " << strerror(errno) << std::endl;
+		std::exit(-1);
+	} 
+
+        return sent;
+                
+}
+
 void * connection_handler(void * cliSockIn){
 
 	int cliSock = *(int*)cliSockIn ;
 	
 	// Receive Size of UserName From Client
-	int usrNameSize;
-	usrNameSize = * ((int *) getCliMsg(cliSock, sizeof(int)));
+	short int usrNameSize;
+	usrNameSize = * ((short int *) getCliMsg(cliSock, sizeof(short int)));
 	// Receive UserName
-	char userName[usrNameSize+1];
-	userName = (char *) getCliMsg(cliSock, usrNameSize) ;
+	char *userName;
+	userName = (char *) getCliMsg(cliSock, usrNameSize + 1);
+
+        std::cout <<  userName << std::endl;
 	// Check If Exists
 	struct userInfo usr = checkUserbase(userName);
 	// User Does Not Exist Yet
 	int confirm;
 	if ( usr.UN.compare("") == 0) {
 		confirm = 1;
-
+                sendToCli((void *)&confirm, sizeof(int), cliSock);   
+                
 	}
 	// User Exists
-	else{
+	else {
 		confirm = 0;
+                sendToCli((void *)&confirm, sizeof(int), cliSock);
 	}
+        
+       	// Receive Size of Password Hash From Client
+	short int passSize;
+	passSize = * ((short int *) getCliMsg(cliSock, sizeof(short int)));
+	// Receive Password Hase
+	char *passHash;
+	passHash = (char *) getCliMsg(cliSock, passSize + 1);
+
+        std::cout << "Password: " << passHash << std::endl;
+        
+        //TODO decrypt password
+    
+        // Check if Password Matches for existing user
+        if(confirm == 0) {
+            if( usr.PW.compare(passHash) == 0) {
+                sendToCli((void *)&confirm, sizeof(int), cliSock);
+            } else {
+                confirm = 1;
+                sendToCli((void *)&confirm, sizeof(int), cliSock);  
+            }
+        } 
+        // Set Password for new user 
+        else {
+            usr.PW = passHash;
+            if (storeUserInfo(usr) == -1) {
+                std::cerr << "Could not create new user: " << strerror(errno) << std::endl;   
+            }
+        }
 
 
 }
