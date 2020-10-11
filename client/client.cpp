@@ -75,7 +75,7 @@ int create_socket(char* host, char* portstr){
 
 size_t sendToServ(int sockFD, void * toSend, int size){
 
-	std::cout << "in send function" << std::endl;
+//	std::cout << "in send function" << std::endl;
 	int bytesSent;
 
 	bytesSent = send(sockFD, toSend, size, 0) ;
@@ -83,7 +83,7 @@ size_t sendToServ(int sockFD, void * toSend, int size){
 		std::cerr << "Error Sending To Server: " << strerror(errno) << std::endl;
 	}
 
-	std::cout << "Sent " << bytesSent << " bytes " << std::endl;
+//	std::cout << "Sent " << bytesSent << " bytes " << std::endl;
 	return bytesSent;
 
 }

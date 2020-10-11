@@ -89,13 +89,13 @@ void * getCliMsg(int cliSock, int recSiz){
 struct userInfo checkUserbase(char * userNameIn){
 
 	struct userInfo user;
-	user.UN = "";
+	user.UN = userNameIn;
 	user.PW = "";
 
 	std::string userName(userNameIn);
 	// Search Through File
 	std::ifstream ifs;
-	ifs.open("userBase.csv");
+	ifs.open("users.csv");
 
 	if (!ifs){
 		std::cout << "Error Opening Userbase file" << std::endl;
@@ -109,13 +109,12 @@ struct userInfo checkUserbase(char * userNameIn){
 		token = line.substr(0, line.find(delim));
 		if ( token.compare(userName) == 0 ){
 			// set user info
-			user.UN = token;
 			user.PW = line.substr(line.find(delim)+1);
 			break;
 		}
 	}
 
-        ifs.close();
+    ifs.close();
 	
 	return user;
 
@@ -123,7 +122,17 @@ struct userInfo checkUserbase(char * userNameIn){
 }
 
 int storeUserInfo(struct userInfo user) {
-    
+   
+	std::ofstream ofs("users.csv", std::ios_base::app);
+	if (!ofs){
+		std::cout << "Error Opening Userbase file" << std::endl;
+		return -1;
+	}
+
+	ofs << user.UN  << std::endl << user.PW << std::endl;
+
+	ofs.close();
+		 
     return 0;
 }
 
@@ -152,46 +161,47 @@ void * connection_handler(void * cliSockIn){
         std::cout <<  userName << std::endl;
 	// Check If Exists
 	struct userInfo usr = checkUserbase(userName);
+	std::cout << "User From File: " << usr.UN << ", " << usr.PW << std::endl;
 	// User Does Not Exist Yet
 	int confirm;
 	if ( usr.UN.compare("") == 0) {
 		confirm = 1;
-                sendToCli((void *)&confirm, sizeof(int), cliSock);   
+        sendToCli((void *)&confirm, sizeof(int), cliSock);   
                 
 	}
 	// User Exists
 	else {
 		confirm = 0;
-                sendToCli((void *)&confirm, sizeof(int), cliSock);
+        sendToCli((void *)&confirm, sizeof(int), cliSock);
 	}
         
-       	// Receive Size of Password Hash From Client
+    // Receive Size of Password Hash From Client
 	short int passSize;
 	passSize = * ((short int *) getCliMsg(cliSock, sizeof(short int)));
-	// Receive Password Hase
+	// Receive Password Hash
 	char *passHash;
 	passHash = (char *) getCliMsg(cliSock, passSize + 1);
 
-        std::cout << "Password: " << passHash << std::endl;
+    std::cout << "Password: " << passHash << std::endl;
         
-        //TODO decrypt password
+    //TODO decrypt password
     
-        // Check if Password Matches for existing user
-        if(confirm == 0) {
-            if( usr.PW.compare(passHash) == 0) {
-                sendToCli((void *)&confirm, sizeof(int), cliSock);
-            } else {
-                confirm = 1;
-                sendToCli((void *)&confirm, sizeof(int), cliSock);  
-            }
-        } 
-        // Set Password for new user 
-        else {
-            usr.PW = passHash;
-            if (storeUserInfo(usr) == -1) {
-                std::cerr << "Could not create new user: " << strerror(errno) << std::endl;   
-            }
+    // Check if Password Matches for existing user
+    if(confirm == 0) {
+        if( usr.PW.compare(passHash) == 0) {
+            sendToCli((void *)&confirm, sizeof(int), cliSock);
+        } else {
+            confirm = 1;
+            sendToCli((void *)&confirm, sizeof(int), cliSock);  
         }
+    } 
+        // Set Password for new user 
+    else {
+        usr.PW = passHash;
+        if (storeUserInfo(usr) == -1) {
+            std::cerr << "Could not create new user: " << strerror(errno) << std::endl;   
+        }
+    }
 
 
 }
