@@ -97,6 +97,7 @@ void handle_user_connection(int servFD, char* username){
 	// determine if we need to create new password
 	int resp;
 	recv(servFD, (void *)&resp, sizeof(int), 0);
+	std::cout << "Response: " << resp << std::endl;
 
 	std::string password;
 	if (resp == 0){
@@ -108,11 +109,11 @@ void handle_user_connection(int servFD, char* username){
 			std::cin >> password;
 			// send length (including null character)
 			short int passlen = password.length()+1;
-			std::cout << "Password length to send: " << passlen << std::endl;
+		//	std::cout << "Password length to send: " << passlen << std::endl;
 			sendToServ(servFD, (void *)&passlen, sizeof(short int));
 			// send password
 			const char * c_pass = password.c_str();
-			std::cout << "Your Password: " << c_pass << std::endl;
+		//	std::cout << "Your Password: " << c_pass << std::endl;
 			sendToServ(servFD, (void *)c_pass, passlen);
 			// recieve confirmation if password was accepted
 			recv(servFD, (void *)&resp, sizeof(int), 0);

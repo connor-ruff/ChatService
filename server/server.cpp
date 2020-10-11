@@ -89,7 +89,7 @@ void * getCliMsg(int cliSock, int recSiz){
 struct userInfo checkUserbase(char * userNameIn){
 
 	struct userInfo user;
-	user.UN = userNameIn;
+	user.UN = "";
 	user.PW = "";
 
 	std::string userName(userNameIn);
@@ -109,6 +109,7 @@ struct userInfo checkUserbase(char * userNameIn){
 		token = line.substr(0, line.find(delim));
 		if ( token.compare(userName) == 0 ){
 			// set user info
+			user.UN = userName ;
 			user.PW = line.substr(line.find(delim)+1);
 			break;
 		}
@@ -129,7 +130,7 @@ int storeUserInfo(struct userInfo user) {
 		return -1;
 	}
 
-	ofs << user.UN  << std::endl << user.PW << std::endl;
+	ofs << user.UN  << "," << user.PW << std::endl;
 
 	ofs.close();
 		 
@@ -157,14 +158,15 @@ void * connection_handler(void * cliSockIn){
 	// Receive UserName
 	char *userName;
 	userName = (char *) getCliMsg(cliSock, usrNameSize + 1);
-
-        std::cout <<  userName << std::endl;
+	std::string userNameString(userName);
+    std::cout <<  "Received UserName: " << userNameString << std::endl;
 	// Check If Exists
 	struct userInfo usr = checkUserbase(userName);
 	std::cout << "User From File: " << usr.UN << ", " << usr.PW << std::endl;
 	// User Does Not Exist Yet
 	int confirm;
 	if ( usr.UN.compare("") == 0) {
+		usr.UN = userNameString ;
 		confirm = 1;
         sendToCli((void *)&confirm, sizeof(int), cliSock);   
                 
