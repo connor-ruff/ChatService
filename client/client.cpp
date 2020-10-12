@@ -94,6 +94,13 @@ void handle_user_connection(int servFD, char* username){
 	sendToServ(servFD, (void*)&userlen, sizeof(userlen));
 	// send username
 	sendToServ(servFD, username, strlen(username)+1);
+
+	// Receive Public Key Size and Public Key
+	int keySize;
+	recv(servFD, (void *)&keySize, sizeof(int), 0);
+	char * pubKey;
+	recv(servFD, (void *)pubKey, keySize, 0);
+
 	// determine if we need to create new password
 	int resp;
 	recv(servFD, (void *)&resp, sizeof(int), 0);
@@ -108,14 +115,9 @@ void handle_user_connection(int servFD, char* username){
 			std::cout << "Enter password: ";
 			std::cin >> password;
 
-			// Receive Public Key Size and Public Key
-			int keySize;
-			recv(servFD, (void *)&keySize, sizeof(int), 0);
-			char * pubKey;
-			recv(servFD, (void *)pubKey, keySize, 0);
-			
+						
 			// Ecrypt Password
-			char * encrPass = encrypt(password.c_str(), pubKey);
+			char * encrPass = encrypt((char *)password.c_str(), pubKey);
 
 			// send length (including null character)
 			short int passlen = strlen(encrPass)+1;
@@ -123,7 +125,7 @@ void handle_user_connection(int servFD, char* username){
 			sendToServ(servFD, (void *)&passlen, sizeof(short int));
 			// send password
 		//	std::cout << "Your Password: " << c_pass << std::endl;
-			sendToServ(servFD, (void *)c_pass, passlen);
+			sendToServ(servFD, (void *)encrPass, passlen);
 			// recieve confirmation if password was accepted
 			recv(servFD, (void *)&resp, sizeof(int), 0);
 			if (resp == 0)
@@ -135,12 +137,17 @@ void handle_user_connection(int servFD, char* username){
 		std::cout << "Creating new user\n";
 		std::cout << "Enter password: ";
 		std::cin >> password;
-		// send length
-		short int passlen = password.length()+1;
+		// encrypt password
+		char * encrPass = encrypt((char *)password.c_str(), pubKey);
+		// send length (including null character)
+		short int passlen = strlen(encrPass)+1;
+		// send length to server
+		std::cout << "encr password: " << encrPass << " passslen: " << passlen << std::endl;
 		sendToServ(servFD, (void *)&passlen, sizeof(short int));
 		// send password
-		const char * c_pass = password.c_str();
-		sendToServ(servFD, (void *)c_pass, passlen);
+		std::cout << "length sent\n";
+		sendToServ(servFD, (void *)encrPass, passlen);
+		std::cout << "password sent\n";
 	}
 }
 
