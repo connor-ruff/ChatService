@@ -18,11 +18,16 @@
 #include<fstream>
 #include<sstream>
 #include<pthread.h>
+#include<unordered_map>
 
 struct userInfo {
 	std::string UN;
 	std::string PW;
 };
+
+std::unordered_map<std::string, std::string> onlineUserKeys;
+std::unordered_map<std::string, int> onlineUserSockets;
+pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
 
 char *  parseArgs(int, char **);
 int     getSock(std::string);
@@ -31,6 +36,9 @@ void *  getCliMsg(int cliSock, int recSize);
 size_t  sendToCli(void *, int, int);
 int     storeUserInfo(struct userInfo);
 struct userInfo checkUserbase(char * userNameIn);
+void mainBoard(char *, int, struct userInfo);
+void handleBroadcast(int, struct userInfo);
+void handlePrivate(int, struct userInfo);
 
 int main(int argc, char ** argv){
 
@@ -66,6 +74,171 @@ int main(int argc, char ** argv){
 	}
 
 	return 0;
+}
+
+void mainBoard(char * cliPubKey, int cliSock, struct userInfo usr){
+
+	// Receive Operation From Client
+	
+	bool exit = false;
+	while(!exit){
+		// Get The Command
+		short int command = * ( (short int *) getCliMsg(cliSock, sizeof(short int)));
+		switch (command) {
+
+			case 1:            // BroadCast
+				handleBroadcast(cliSock, usr);
+				break;
+			case 2:            // PM
+				handlePrivate(cliSock, usr);
+				break;
+			case 3:
+				exit = true;
+				if ( pthread_mutex_lock(&lock) != 0 ) {
+					std::cerr << "Mutex Error on Lock()\n";
+					std::exit(-1); // TODO close stuff out
+				} 
+				onlineUserKeys.erase(usr.UN);
+				onlineUserSockets.erase(usr.UN);
+				if ( pthread_mutex_unlock(&lock) != 0 ) {
+					std::cerr << "Mutex Error on unLock()\n";
+					std::exit(-1); // TODO close stuff out
+				}
+				close(cliSock); 
+				break;
+		}
+
+	}
+
+}
+
+void handlePrivate(int cliSock, struct userInfo usr){
+
+	// Get List of All Users
+	std::string userList = "";
+
+	// Lock Data Struct
+	if ( pthread_mutex_lock(&lock) != 0 ) {
+		std::cerr << "Mutex Error on Lock()\n";
+		std::exit(-1); // TODO close stuff out
+	}
+	 
+	for( std::pair<std::string, int> elem : onlineUserSockets ){
+		
+		if ( elem.first.compare(usr.UN) == 0) {
+			continue;
+		}
+		userList = userList  + elem.first + "\n";
+	}
+
+	// Unlock	
+	if ( pthread_mutex_unlock(&lock) != 0 ) {
+		std::cerr << "Mutex Error on unLock()\n";
+		std::exit(-1); // TODO close stuff out
+	} 
+
+	// Send Full List To Client
+	short int listSize = userList.length() + 1;
+	sendToCli( (void *)&listSize, sizeof(short int), cliSock);
+	sendToCli( (void *)userList.c_str(), listSize, cliSock) ;
+
+	// Get UserName To Send To
+	short int userNameSize = * ((short int *) getCliMsg(cliSock, sizeof(short int))) ;
+	char * usrToSendTo = (char *) getCliMsg(cliSock, userNameSize);
+
+	// Get PubKey For That User and Send
+	std::string usrToSendStr(usrToSendTo) ;
+	std::string receiverPubKey = "";
+	receiverPubKey = receiverPubKey + onlineUserKeys[usrToSendStr] ;
+	int pubKeySize = receiverPubKey.length() + 1;
+	if ( pubKeySize == 1){
+		receiverPubKey = "DOESNOTEXIST";
+		pubKeySize = receiverPubKey.length() + 1;
+	}
+	sendToCli( (void *)&pubKeySize, sizeof(int), cliSock);
+	sendToCli( (void *)receiverPubKey.c_str(), pubKeySize, cliSock);
+
+	// Receive Message To Be Sent
+	short int msgSize = * ((short int *) getCliMsg(cliSock, sizeof(short int)));
+	char * msgToSend = (char *) getCliMsg(cliSock, msgSize);
+
+	// Check If User Exists
+	// Lock Data Struct
+	if ( pthread_mutex_lock(&lock) != 0 ) {
+		std::cerr << "Mutex Error on Lock()\n";
+		std::exit(-1); // TODO close stuff out
+	}
+	 
+	bool valid = false;
+	int receiverSocket;
+	for( std::pair<std::string, int> elem : onlineUserSockets ){
+		
+		if ( elem.first.compare(usr.UN) == 0) {
+			continue;
+		}
+		if (elem.first.compare(usrToSendStr) == 0){
+			valid = true;
+			receiverSocket = onlineUserSockets[usrToSendStr] ;
+		}
+	}
+	// Unlock	
+	if ( pthread_mutex_unlock(&lock) != 0 ) {
+		std::cerr << "Mutex Error on unLock()\n";
+		std::exit(-1); // TODO close stuff out
+	} 
+	
+	
+	// Send Message to User
+	short int conf = 0;
+	if (valid) {
+		sendToCli( (void *)&msgSize, sizeof(short int), receiverSocket); 
+		sendToCli( (void *)msgToSend, msgSize, receiverSocket) ;
+		// Notify Sender Client that it sent
+		sendToCli( (void *)&conf, sizeof(short int), cliSock);
+	}
+	
+	else {
+		// Tell Sender Client the user didn't exist
+		conf = 1;
+		sendToCli( (void *)&conf, sizeof(short int), cliSock);
+	}
+}
+
+void handleBroadcast(int cliSock, struct userInfo usr){
+
+	// Send Acknowledgement
+	short int ack = 0;
+	sendToCli(  (void *)&ack, sizeof(short int), cliSock);
+
+	// Receive Message To Send
+	short int msgSize = * ((short int *) getCliMsg(cliSock, sizeof(short int))) ;
+	char * broadMsg ;
+	broadMsg = (char *) getCliMsg(cliSock, msgSize);
+
+	// Lock Data Structure
+	
+	if ( pthread_mutex_lock(&lock) != 0 ) {
+		std::cerr << "Mutex Error on Lock()\n";
+		std::exit(-1); // TODO close stuff out
+	} 
+	// Send To All Other Clients
+	for( std::pair<std::string, int> elem : onlineUserSockets ){
+
+		if ( elem.first.compare(usr.UN) == 0) {
+			continue;
+		}
+		sendToCli( (void *)&msgSize, sizeof(short int), cliSock);
+		sendToCli( (void *)broadMsg, msgSize, elem.second) ;	
+	}
+	
+	// Unlock Data Structure		
+	if ( pthread_mutex_unlock(&lock) != 0 ) {
+		std::cerr << "Mutex Error on unLock()\n";
+		std::exit(-1); // TODO close stuff out
+	} 
+
+	// Acknowledge User
+	sendToCli( (void *)&ack, sizeof(short int), cliSock);
 }
 
 void * getCliMsg(int cliSock, int recSiz){
@@ -161,11 +334,11 @@ void * connection_handler(void * cliSockIn){
 	char *userName;
 	userName = (char *) getCliMsg(cliSock, usrNameSize + 1);
 	std::string userNameString(userName);
-    std::cout <<  "Received UserName: " << userNameString << std::endl;
+  //  std::cout <<  "Received UserName: " << userNameString << std::endl;
 	
 	// Create and Send Public Key
 	char * cliPubKey = getPubKey();
-	std::cout << "Client's Public Key: " << cliPubKey << std::endl;
+//	std::cout << "Client's Public Key: " << cliPubKey << std::endl;
 	// Send Size of Public Key
 	int keySizeToSend = strlen(cliPubKey)+1;
 	sendToCli( (void *)&keySizeToSend, sizeof(int), cliSock);
@@ -178,7 +351,7 @@ void * connection_handler(void * cliSockIn){
 	// User Does Not Exist Yet
 	int confirm;
 	if ( usr.UN.compare("") == 0) {
-		std::cout << "User DNE\n";
+	//	std::cout << "Creating New User...\n";
 		usr.UN = userNameString ;
 		confirm = 1;
         sendToCli((void *)&confirm, sizeof(int), cliSock);   
@@ -186,7 +359,7 @@ void * connection_handler(void * cliSockIn){
 	}
 	// User Exists
 	else {
-		std::cout << "User Exists\n";
+	//	std::cout << "Found User\n";
 		confirm = 0;
         sendToCli((void *)&confirm, sizeof(int), cliSock);
 	}
@@ -198,12 +371,12 @@ void * connection_handler(void * cliSockIn){
 	passSize = * ((short int *) getCliMsg(cliSock, sizeof(short int)));
 	// Receive Password Hash
 	char *passHash;
-	passHash = (char *) getCliMsg(cliSock, passSize + 1);
+	passHash = (char *) getCliMsg(cliSock, passSize);
 
         
     //TODO decrypt password
 	char * decrPass = decrypt(passHash); 
-    std::cout << "Decrypted Password: " << decrPass << std::endl;
+   // std::cout << "Decrypted Password: " << decrPass << std::endl;
 	 
     // Check if Password Matches for existing user
     if(confirm == 0) {
@@ -223,7 +396,33 @@ void * connection_handler(void * cliSockIn){
         }
     }
 
+	// Receive Client's Public Key
+	short int keySize = *  ((short int *) getCliMsg(cliSock, sizeof(short int)));
+	char * userPubKey = (char *) getCliMsg(cliSock, passSize);
 
+	// Add Client's Public Key and UserName to Current Active Users
+	std::string usrPubKeyStr(userPubKey);
+	if ( pthread_mutex_lock(&lock) != 0 ) {
+		std::cerr << "Mutex Error on Lock()\n";
+		std::exit(-1); // TODO close stuff out
+	} 
+	onlineUserKeys.insert({usr.UN, usrPubKeyStr});
+	if ( pthread_mutex_unlock(&lock) != 0 ) {
+		std::cerr << "Mutex Error on Unlock()\n";
+		std::exit(-1); // TODO close stuff out
+	} 
+
+	if ( pthread_mutex_lock(&lock) != 0 ) {
+		std::cerr << "Mutex Error on Lock()\n";
+		std::exit(-1); // TODO close stuff out
+	} 
+	onlineUserSockets.insert({usr.UN, cliSock});
+	if ( pthread_mutex_unlock(&lock) != 0 ) {
+		std::cerr << "Mutex Error on Unlock()\n";
+		std::exit(-1); // TODO close stuff out
+	} 
+	
+	mainBoard(userPubKey, cliSock, usr);
 }
 
 int getSock(std::string port){
