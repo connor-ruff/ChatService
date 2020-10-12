@@ -17,7 +17,7 @@
 #include<fstream>
 #include<sstream>
 #include<stdbool.h>
-
+#include"../pg3lib.h"
 /*typedef struct MessageQueue MessageQueue;
 struct MessageQueue {
 	char	name[BUFSIZ];
@@ -107,12 +107,21 @@ void handle_user_connection(int servFD, char* username){
 			std::cout << "Existing user\n";
 			std::cout << "Enter password: ";
 			std::cin >> password;
+
+			// Receive Public Key Size and Public Key
+			int keySize;
+			recv(servFD, (void *)&keySize, sizeof(int), 0);
+			char * pubKey;
+			recv(servFD, (void *)pubKey, keySize, 0);
+			
+			// Ecrypt Password
+			char * encrPass = encrypt(password.c_str(), pubKey);
+
 			// send length (including null character)
-			short int passlen = password.length()+1;
+			short int passlen = strlen(encrPass)+1;
 		//	std::cout << "Password length to send: " << passlen << std::endl;
 			sendToServ(servFD, (void *)&passlen, sizeof(short int));
 			// send password
-			const char * c_pass = password.c_str();
 		//	std::cout << "Your Password: " << c_pass << std::endl;
 			sendToServ(servFD, (void *)c_pass, passlen);
 			// recieve confirmation if password was accepted

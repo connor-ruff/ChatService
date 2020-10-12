@@ -176,6 +176,14 @@ void * connection_handler(void * cliSockIn){
 		confirm = 0;
         sendToCli((void *)&confirm, sizeof(int), cliSock);
 	}
+
+	// Create and Send Public Key
+	char * cliPubKey = getPubKey();
+	// Send Size of Public Key
+	int keySizeToSend = strlen(cliPubKey)+1;
+	sendToCli( (void *)&keySizeToSend, sizeof(int), cliSock);
+	sendToCli( (void *)cliPubKey, keySizeToSend, cliSock);
+	
         
     // Receive Size of Password Hash From Client
 	short int passSize;
