@@ -79,7 +79,7 @@ void * getCliMsg(int cliSock, int recSiz){
 		std::exit(-1);
 	}
 
-        std::cout << "BUF: " << received << std::endl;
+	std::cout << "Received " << received << " bytes from client" << std::endl;
 
 	buf[received] = '\0';
 	void * ret = buf;
@@ -143,6 +143,8 @@ size_t sendToCli(void * toSend, int len, int cliFD){
 		std::cerr << "Error Sending Info To Client: " << strerror(errno) << std::endl;
 		std::exit(-1);
 	} 
+	
+	std::cout << "Sent " << sent << " bytes to client" << std::endl;
 
         return sent;
                 
@@ -160,12 +162,23 @@ void * connection_handler(void * cliSockIn){
 	userName = (char *) getCliMsg(cliSock, usrNameSize + 1);
 	std::string userNameString(userName);
     std::cout <<  "Received UserName: " << userNameString << std::endl;
+	
+	// Create and Send Public Key
+	char * cliPubKey = getPubKey();
+	std::cout << "Client's Public Key: " << cliPubKey << std::endl;
+	// Send Size of Public Key
+	int keySizeToSend = strlen(cliPubKey)+1;
+	sendToCli( (void *)&keySizeToSend, sizeof(int), cliSock);
+	sendToCli( (void *)cliPubKey, keySizeToSend, cliSock);
+
+
 	// Check If Exists
 	struct userInfo usr = checkUserbase(userName);
-	std::cout << "User From File: " << usr.UN << ", " << usr.PW << std::endl;
+//	std::cout << "User From File: " << usr.UN << ", " << usr.PW << std::endl;
 	// User Does Not Exist Yet
 	int confirm;
 	if ( usr.UN.compare("") == 0) {
+		std::cout << "User DNE\n";
 		usr.UN = userNameString ;
 		confirm = 1;
         sendToCli((void *)&confirm, sizeof(int), cliSock);   
@@ -173,16 +186,11 @@ void * connection_handler(void * cliSockIn){
 	}
 	// User Exists
 	else {
+		std::cout << "User Exists\n";
 		confirm = 0;
         sendToCli((void *)&confirm, sizeof(int), cliSock);
 	}
 
-	// Create and Send Public Key
-	char * cliPubKey = getPubKey();
-	// Send Size of Public Key
-	int keySizeToSend = strlen(cliPubKey)+1;
-	sendToCli( (void *)&keySizeToSend, sizeof(int), cliSock);
-	sendToCli( (void *)cliPubKey, keySizeToSend, cliSock);
 	
         
     // Receive Size of Password Hash From Client
@@ -192,22 +200,24 @@ void * connection_handler(void * cliSockIn){
 	char *passHash;
 	passHash = (char *) getCliMsg(cliSock, passSize + 1);
 
-    std::cout << "Password: " << passHash << std::endl;
         
     //TODO decrypt password
-    
+	char * decrPass = decrypt(passHash); 
+    std::cout << "Decrypted Password: " << decrPass << std::endl;
+	 
     // Check if Password Matches for existing user
     if(confirm == 0) {
-        if( usr.PW.compare(passHash) == 0) {
+        if( !strcmp(decrPass, usr.PW.c_str()) ) {
             sendToCli((void *)&confirm, sizeof(int), cliSock);
         } else {
             confirm = 1;
             sendToCli((void *)&confirm, sizeof(int), cliSock);  
         }
     } 
-        // Set Password for new user 
+    // Set Password for new user 
     else {
-        usr.PW = passHash;
+		std::string temp(decrPass);
+        usr.PW = temp;
         if (storeUserInfo(usr) == -1) {
             std::cerr << "Could not create new user: " << strerror(errno) << std::endl;   
         }
