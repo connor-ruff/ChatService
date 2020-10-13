@@ -26,7 +26,7 @@ pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t cond = PTHREAD_COND_INITIALIZER;
 
 
-std::queue <void *> client_messages;
+std::queue <char *> client_messages;
 
 void help() {
 	printf("Please enter a command (BM: Broadcast Messaging, PM: Private Messaging, EX: Exit\n");
@@ -37,24 +37,30 @@ void usage() {
 }
 
 void *inbound_messager(void *arg){
-	intptr_t servFD = (intptr_t)arg;
+	int servFD = *(int*)arg;
 	char buf[BUFSIZ];
+	char bufMiddle[BUFSIZ];
 	char bufFinal[BUFSIZ-1];
-	int rec;
 	while(true){
 		/* note: this is going to need to handle the padding properly */
-		bzero(buf, sizeof(buf));
-		rec = recv(servFD, buf, BUFSIZ, 0);
-		char flag = buf[0];
+		bzero(bufMiddle, sizeof(bufMiddle));
+		int total = 0;
+		while(total < BUFSIZ){
+			total+= recv(servFD, buf, BUFSIZ, 0);
+			strcat(bufMiddle, buf);
+			bzero(buf, sizeof(buf));
+		}
+		std::cout << bufMiddle << std::endl;
+		char flag = bufMiddle[0];
 		
 		bzero(bufFinal, sizeof(bufFinal));
 		bufFinal[BUFSIZ-1];
-		for (int i=1; i <= rec; ++i)
-			bufFinal[i-1] = buf[i];
+		for (int i=1; i <= BUFSIZ; ++i)
+			bufFinal[i-1] = bufMiddle[i];
 		std::cout << "Final Buffer: " << bufFinal <<std::endl;
 		if (flag == '1'){
 			std::cout << "message added to queue: "<< bufFinal << std::endl;
-			void * dummy = bufFinal;
+			char * dummy = bufFinal;
 			pthread_mutex_lock(&lock);
 			client_messages.push(dummy);
 			pthread_cond_signal(&cond);
@@ -64,32 +70,30 @@ void *inbound_messager(void *arg){
 			std::cout << "******* message recieved " << bufFinal << std::endl;
 		}
 		else{
+			std::cout << "Buf: " << bufMiddle << " with flag " << flag <<std::endl;
 			std::cout << "an error ocurred reading in stuff\n";
-			continue;
+				
 		}
+		
 	}
 	return 0;
 }
 
-void *get_server_message(bool sizeMatters){
+char *get_server_message(){
 	//if sizeMatters then we need to pop off twice(once for length of next thing once for the next thing)
-	if (sizeMatters){
-		pthread_mutex_lock(&lock)
-		while (client_messages.empty()){
-			pthread_cond_wait(&cond, &lock);
-		}
-		char buffer[BUFSIZ] = client_messages.pop();
-		buffer[sizeof(short int)] = '\0';
-		short int size = (short int)buffer;
-
-		while (client_messages.empty(){
-			pthread_cond_wait(&cond, &lock);
-		}
-		bzero(buffer, sizeof(buffer));
-		buffer = client_messages.pop();
-		pthread_mutex_unlock(&lock);
-		return buffer;
+	std::cout << "Getting server message\n";
+	pthread_mutex_lock(&lock);
+	while (client_messages.empty()){
+		pthread_cond_wait(&cond, &lock);
 	}
+
+	//client_messages.front();
+	//char buffer[BUFSIZ] = client_messages.pop();
+	char * resp = client_messages.front();
+	client_messages.pop();
+	pthread_mutex_unlock(&lock);
+	return resp;
+	
 
 }
 
@@ -125,6 +129,8 @@ int create_socket(char* host, char* portstr){
 	return fd;
 }
 
+
+
 size_t sendToServ(int sockFD, void * toSend, int size){
 
 //	std::cout << "in send function" << std::endl;
@@ -146,20 +152,17 @@ void handle_user_connection(int servFD, char* username){
 	sendToServ(servFD, (void*)&userlen, sizeof(userlen));
 	// send username
 	sendToServ(servFD, username, strlen(username)+1);
-
+	
 	// Receive Public Key Size and Public Key
-	int keySize;
-	recv(servFD, (void *)&keySize, sizeof(int), 0);
-	char * pubKey;
-	recv(servFD, (void *)pubKey, keySize, 0);
-
+	char pubKey[4096];
+	strcpy(pubKey, get_server_message());
+	std::cout << "pubkey: " << pubKey << std::endl;
 	// determine if we need to create new password
-	int resp;
-	recv(servFD, (void *)&resp, sizeof(int), 0);
+	char *resp = get_server_message();
 	std::cout << "Response: " << resp << std::endl;
 
 	std::string password;
-	if (resp == 0){
+	if (strcmp("CON", resp) == 0){
 		// username found
 		bool accepted = false;
 		while(accepted == false) {
@@ -179,8 +182,8 @@ void handle_user_connection(int servFD, char* username){
 		//	std::cout << "Your Password: " << c_pass << std::endl;
 			sendToServ(servFD, (void *)encrPass, passlen);
 			// recieve confirmation if password was accepted
-			recv(servFD, (void *)&resp, sizeof(int), 0);
-			if (resp == 0)
+			resp = get_server_message();
+			if (strcmp("CON", resp) == 0)
 				accepted = true;
 		}
 	}
@@ -222,15 +225,18 @@ int main(int argc, char* argv[]){
 	if (servFD == -1){
 		return EXIT_FAILURE;
 	}
-	/* determine if new user or not and handle that */
-	handle_user_connection(servFD, username);
 
 	/* Create thread */
 	pthread_t inbound;
 	if ((pthread_create(&inbound, NULL, inbound_messager, (void *)&servFD) < 0) < 0){
 		std::cerr << "Could not create thread" << std::endl;
 		return EXIT_FAILURE;
-	}
+	}	
+	std::cout << " Thread created" << std::endl;	
+	/* determine if new user or not and handle that */
+	handle_user_connection(servFD, username);
+	std::cout << "user created successfully\n";
+
 
 
 	
