@@ -66,8 +66,11 @@ void *inbound_messager(void *arg){
 			pthread_cond_signal(&cond);
 			pthread_mutex_unlock(&lock);
 		}
-		else if (flag == '2'){
+		else if (flag == '2'){// unencrypted BM
 			std::cout << "******* message recieved " << bufFinal << std::endl;
+		}	else if (flag == '3'){// encrypted PM
+			char * result = decrypt(bufFinal);
+			std::cout << "******* message recieved " << result << std::endl;
 		}
 		else{
 			std::cout << "Buf: " << bufMiddle << " with flag " << flag <<std::endl;
@@ -204,6 +207,112 @@ void handle_user_connection(int servFD, char* username){
 		sendToServ(servFD, (void *)encrPass, passlen);
 		std::cout << "password sent\n";
 	}
+	// create and send pubkey
+	char * servPubKey = getPubKey();
+	// send size of pubkey
+	int keySize = strlen(servPubKey)+1;
+	sendToServ(servFD, (void *)&keySize, sizeof(int));
+	sendToServ(servFD, (void *)servPubKey, keySize);
+}
+
+void handle_bm(int servFD){
+	short int signal = 1;
+	sendToServ(servFD, (void *)&signal, sizeof(short int));
+	// recieve acknowledgement
+	char *ack = get_server_message();
+	std::cout << "Enter the public message: ";
+	std::string message;
+	std::cin.ignore();
+	getline(std::cin, message);
+
+	std::cout << "The message is: " << message << std::endl;
+	// send the message
+	short int messageSize = strlen(message.c_str())+1;
+	sendToServ(servFD, (void *)&messageSize, sizeof(short int));
+	sendToServ(servFD, (void *)message.c_str(), messageSize);
+
+	// recieve confirmation
+	char * confirmation = get_server_message();
+}
+
+void handle_pm(int servFD){
+	short int signal = 2;
+	sendToServ(servFD, (void *)&signal, sizeof(short int));
+	char * users = get_server_message();
+	std::cout << "Peers Online:\n" << users;
+	std::cout << "Peer to message: ";
+	std::string input;
+	std::cin >> input;
+
+	// send name to server
+	short int size = strlen(input.c_str()) + 1;
+	sendToServ(servFD, (void *)&size, sizeof(short int));
+	sendToServ(servFD, (void *)input.c_str(), size);
+
+	// recive pubKey or denial
+	char * pubKey = get_server_message();
+	while (strcmp(pubKey, "DEN") == 0){
+		std::cout << "Invalid user. Please enter again: ";
+		std::cin >> input;
+
+		size = strlen(input.c_str()) + 1;
+		sendToServ(servFD, (void *)&size, sizeof(short int));
+		sendToServ(servFD, (void *)input.c_str(), size);
+		pubKey = get_server_message();
+	}
+
+	// get and send the private message
+	std::cout << "Enter the private message: ";
+	std::string rawMessage;
+	std::cin.ignore();
+	getline(std::cin, rawMessage);
+	char buf[4096];
+	strcpy(buf, rawMessage.c_str());
+
+	char * message = encrypt(buf, pubKey);
+	size = strlen(message)+1;
+	sendToServ(servFD, (void *)&size, sizeof(short int));
+	sendToServ(servFD, (void *)message, size);
+
+	// get the confirmation
+	
+	char * conf = get_server_message();
+	if (strcmp(conf, "CON")==0){
+		std::cout << "Private message sent\n";
+	}
+	else if (strcmp(conf, "DEN") == 0){
+		std::cout << "The user is not available\n";
+	}
+	else
+		std::cout << "Something went wrong. conf is: " << conf << std::endl;
+
+}
+
+
+void get_user_instructions(int servFD){
+	std::string input;
+	while (true){
+		std::cout << ">";
+		help();
+		std::cout << ">";
+		std::cin >> input;
+		std::cout << "input: " << input << std::endl;
+		if (input.compare("BM") == 0){
+			std::cout << "Handling BM" << std::endl;
+			handle_bm(servFD);
+		}
+		else if (input.compare("PM") == 0){
+			std::cout << "Handling PM\n";
+			handle_pm(servFD);
+		}
+		else if (input.compare("EX") == 0){
+			std::cout << "Handling EX\n";
+		}
+		else{
+			std::cout << "The function you mentioned does not exist\n";
+		}
+	}
+
 }
 
 
@@ -236,6 +345,8 @@ int main(int argc, char* argv[]){
 	/* determine if new user or not and handle that */
 	handle_user_connection(servFD, username);
 	std::cout << "user created successfully\n";
+
+	get_user_instructions(servFD);
 
 
 
