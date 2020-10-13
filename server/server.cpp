@@ -33,7 +33,7 @@ char *  parseArgs(int, char **);
 int     getSock(std::string);
 void *  connection_handler(void *cliSockIn);
 void *  getCliMsg(int cliSock, int recSize);
-size_t  sendToCli(void *, int, int);
+size_t  sendToCli(void *, int, int, int);
 int     storeUserInfo(struct userInfo);
 struct userInfo checkUserbase(char * userNameIn);
 void mainBoard(char *, int, struct userInfo);
@@ -51,28 +51,30 @@ int main(int argc, char ** argv){
 	std::cout << "Waiting For Connection on " << port << "...\n";
 
 	// Accept Client Connections
-	pthread_t thread_id;
+	pthread_t thread_id[100];
 	struct sockaddr_in client;
 	int c = sizeof(struct sockaddr_in);
 	int cliSock;
+	int i = 0;
 	while( (cliSock = accept(sockfd, (struct sockaddr *)&client, (socklen_t *)&c)) ) {
 
 		std::cout << "Accepted Connection\n" ; // TODO debug info
 
-		if ( pthread_create( &thread_id, NULL, connection_handler, (void *)&cliSock) < 0) {
+		if ( pthread_create( &thread_id[i], NULL, connection_handler, (void *)&cliSock) < 0) {
 			std::cerr << "Could Not Create Thread" << std::endl;
 			continue;
 		}
 
-		pthread_join(thread_id, NULL);
 
 		if (cliSock < 0){
 			std::cerr << "Accept Failed\n";
 			std::exit(-1);
 		}
+		i++;
 
 	}
 
+//	pthread_join(thread_id[i], NULL);
 	return 0;
 }
 
@@ -139,8 +141,8 @@ void handlePrivate(int cliSock, struct userInfo usr){
 
 	// Send Full List To Client
 	short int listSize = userList.length() + 1;
-	sendToCli( (void *)&listSize, sizeof(short int), cliSock);
-	sendToCli( (void *)userList.c_str(), listSize, cliSock) ;
+	sendToCli( (void *)&listSize, sizeof(short int), cliSock, 1);
+	sendToCli( (void *)userList.c_str(), listSize, cliSock, 1) ;
 
 	// Get UserName To Send To
 	short int userNameSize = * ((short int *) getCliMsg(cliSock, sizeof(short int))) ;
@@ -155,8 +157,8 @@ void handlePrivate(int cliSock, struct userInfo usr){
 		receiverPubKey = "DOESNOTEXIST";
 		pubKeySize = receiverPubKey.length() + 1;
 	}
-	sendToCli( (void *)&pubKeySize, sizeof(int), cliSock);
-	sendToCli( (void *)receiverPubKey.c_str(), pubKeySize, cliSock);
+	sendToCli( (void *)&pubKeySize, sizeof(int), cliSock, 1);
+	sendToCli( (void *)receiverPubKey.c_str(), pubKeySize, cliSock, 1);
 
 	// Receive Message To Be Sent
 	short int msgSize = * ((short int *) getCliMsg(cliSock, sizeof(short int)));
@@ -191,16 +193,16 @@ void handlePrivate(int cliSock, struct userInfo usr){
 	// Send Message to User
 	short int conf = 0;
 	if (valid) {
-		sendToCli( (void *)&msgSize, sizeof(short int), receiverSocket); 
-		sendToCli( (void *)msgToSend, msgSize, receiverSocket) ;
+		sendToCli( (void *)&msgSize, sizeof(short int), receiverSocket, 2); 
+		sendToCli( (void *)msgToSend, msgSize, receiverSocket, 2) ;
 		// Notify Sender Client that it sent
-		sendToCli( (void *)&conf, sizeof(short int), cliSock);
+		sendToCli( (void *)&conf, sizeof(short int), cliSock, 1);
 	}
 	
 	else {
 		// Tell Sender Client the user didn't exist
 		conf = 1;
-		sendToCli( (void *)&conf, sizeof(short int), cliSock);
+		sendToCli( (void *)&conf, sizeof(short int), cliSock, 1);
 	}
 }
 
@@ -208,7 +210,7 @@ void handleBroadcast(int cliSock, struct userInfo usr){
 
 	// Send Acknowledgement
 	short int ack = 0;
-	sendToCli(  (void *)&ack, sizeof(short int), cliSock);
+	sendToCli(  (void *)&ack, sizeof(short int), cliSock, 1);
 
 	// Receive Message To Send
 	short int msgSize = * ((short int *) getCliMsg(cliSock, sizeof(short int))) ;
@@ -227,8 +229,8 @@ void handleBroadcast(int cliSock, struct userInfo usr){
 		if ( elem.first.compare(usr.UN) == 0) {
 			continue;
 		}
-		sendToCli( (void *)&msgSize, sizeof(short int), cliSock);
-		sendToCli( (void *)broadMsg, msgSize, elem.second) ;	
+		sendToCli( (void *)&msgSize, sizeof(short int), cliSock, 2);
+		sendToCli( (void *)broadMsg, msgSize, elem.second, 2) ;	
 	}
 	
 	// Unlock Data Structure		
@@ -238,7 +240,7 @@ void handleBroadcast(int cliSock, struct userInfo usr){
 	} 
 
 	// Acknowledge User
-	sendToCli( (void *)&ack, sizeof(short int), cliSock);
+	sendToCli( (void *)&ack, sizeof(short int), cliSock, 1);
 }
 
 void * getCliMsg(int cliSock, int recSiz){
@@ -310,8 +312,21 @@ int storeUserInfo(struct userInfo user) {
     return 0;
 }
 
-size_t sendToCli(void * toSend, int len, int cliFD){
-    size_t sent = send(cliFD, toSend, len, 0);
+size_t sendToCli(void * toSend, int len, int cliFD, int flag){
+
+
+	char buf[len+1];
+	if (flag == 1)
+		strcpy(buf, "1");
+	else if (flag == 2)
+		strcpy(buf, "2");
+	else 
+		strcpy(buf, "0");
+
+	strcat(buf, (const char *) toSend);
+	
+
+    size_t sent = send(cliFD, (void *) buf, len+1, 0);
 	if ( sent == -1 ) {
 		std::cerr << "Error Sending Info To Client: " << strerror(errno) << std::endl;
 		std::exit(-1);
@@ -341,8 +356,8 @@ void * connection_handler(void * cliSockIn){
 //	std::cout << "Client's Public Key: " << cliPubKey << std::endl;
 	// Send Size of Public Key
 	int keySizeToSend = strlen(cliPubKey)+1;
-	sendToCli( (void *)&keySizeToSend, sizeof(int), cliSock);
-	sendToCli( (void *)cliPubKey, keySizeToSend, cliSock);
+	sendToCli( (void *)&keySizeToSend, sizeof(int), cliSock, 1);
+	sendToCli( (void *)cliPubKey, keySizeToSend, cliSock, 1);
 
 
 	// Check If Exists
@@ -354,14 +369,14 @@ void * connection_handler(void * cliSockIn){
 	//	std::cout << "Creating New User...\n";
 		usr.UN = userNameString ;
 		confirm = 1;
-        sendToCli((void *)&confirm, sizeof(int), cliSock);   
+        sendToCli((void *)&confirm, sizeof(int), cliSock, 1);   
                 
 	}
 	// User Exists
 	else {
 	//	std::cout << "Found User\n";
 		confirm = 0;
-        sendToCli((void *)&confirm, sizeof(int), cliSock);
+        sendToCli((void *)&confirm, sizeof(int), cliSock, 1);
 	}
 
 	
@@ -381,10 +396,10 @@ void * connection_handler(void * cliSockIn){
     // Check if Password Matches for existing user
     if(confirm == 0) {
         if( !strcmp(decrPass, usr.PW.c_str()) ) {
-            sendToCli((void *)&confirm, sizeof(int), cliSock);
+            sendToCli((void *)&confirm, sizeof(int), cliSock, 1);
         } else {
             confirm = 1;
-            sendToCli((void *)&confirm, sizeof(int), cliSock);  
+            sendToCli((void *)&confirm, sizeof(int), cliSock, 1);  
         }
     } 
     // Set Password for new user 
