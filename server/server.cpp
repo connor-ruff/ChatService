@@ -20,6 +20,10 @@
 #include<pthread.h>
 #include<unordered_map>
 
+
+const char * confirm = "CON";
+const char * deny = "DEN";
+
 struct userInfo {
 	std::string UN;
 	std::string PW;
@@ -32,10 +36,10 @@ pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
 char *  parseArgs(int, char **);
 int     getSock(std::string);
 void *  connection_handler(void *cliSockIn);
-void *  getCliMsg(int cliSock, int recSize);
+void *  getCliMsg(int, int);
 size_t  sendToCli(void *, int, int, int);
 int     storeUserInfo(struct userInfo);
-struct userInfo checkUserbase(char * userNameIn);
+struct userInfo checkUserbase(std::string);
 void mainBoard(char *, int, struct userInfo);
 void handleBroadcast(int, struct userInfo);
 void handlePrivate(int, struct userInfo);
@@ -81,7 +85,7 @@ int main(int argc, char ** argv){
 void mainBoard(char * cliPubKey, int cliSock, struct userInfo usr){
 
 	// Receive Operation From Client
-	
+	std::cout << "(mainBoard) Made it to mainBoard function\n";	
 	bool exit = false;
 	while(!exit){
 		// Get The Command
@@ -89,9 +93,11 @@ void mainBoard(char * cliPubKey, int cliSock, struct userInfo usr){
 		switch (command) {
 
 			case 1:            // BroadCast
+				std::cout << "(mainBoard) Got Broadcast\n";
 				handleBroadcast(cliSock, usr);
 				break;
 			case 2:            // PM
+				std::cout << "(mainBoard) Got Private\n";
 				handlePrivate(cliSock, usr);
 				break;
 			case 3:
@@ -109,7 +115,6 @@ void mainBoard(char * cliPubKey, int cliSock, struct userInfo usr){
 				close(cliSock); 
 				break;
 		}
-
 	}
 
 }
@@ -140,9 +145,7 @@ void handlePrivate(int cliSock, struct userInfo usr){
 	} 
 
 	// Send Full List To Client
-	short int listSize = userList.length() + 1;
-	sendToCli( (void *)&listSize, sizeof(short int), cliSock, 1);
-	sendToCli( (void *)userList.c_str(), listSize, cliSock, 1) ;
+	sendToCli( (void *)userList.c_str(), BUFSIZ, cliSock, 1) ;
 
 	// Get UserName To Send To
 	short int userNameSize = * ((short int *) getCliMsg(cliSock, sizeof(short int))) ;
@@ -154,16 +157,14 @@ void handlePrivate(int cliSock, struct userInfo usr){
 	receiverPubKey = receiverPubKey + onlineUserKeys[usrToSendStr] ;
 	int pubKeySize = receiverPubKey.length() + 1;
 	if ( pubKeySize == 1){
-		receiverPubKey = "DOESNOTEXIST";
-		pubKeySize = receiverPubKey.length() + 1;
+		receiverPubKey = "DEN";
 	}
-	sendToCli( (void *)&pubKeySize, sizeof(int), cliSock, 1);
-	sendToCli( (void *)receiverPubKey.c_str(), pubKeySize, cliSock, 1);
+	sendToCli( (void *)receiverPubKey.c_str(), BUFSIZ, cliSock, 1);
 
 	// Receive Message To Be Sent
 	short int msgSize = * ((short int *) getCliMsg(cliSock, sizeof(short int)));
 	char * msgToSend = (char *) getCliMsg(cliSock, msgSize);
-
+	std::cout << "(private message) Message to send: " << msgToSend << std::endl;
 	// Check If User Exists
 	// Lock Data Struct
 	if ( pthread_mutex_lock(&lock) != 0 ) {
@@ -191,26 +192,25 @@ void handlePrivate(int cliSock, struct userInfo usr){
 	
 	
 	// Send Message to User
-	short int conf = 0;
 	if (valid) {
-		sendToCli( (void *)&msgSize, sizeof(short int), receiverSocket, 2); 
-		sendToCli( (void *)msgToSend, msgSize, receiverSocket, 2) ;
+		char toSend[BUFSIZ];
+		memset(toSend, '\0', BUFSIZ);
+		strcpy(toSend, msgToSend);
+		sendToCli( (void *)toSend, BUFSIZ, receiverSocket, 3) ;
 		// Notify Sender Client that it sent
-		sendToCli( (void *)&conf, sizeof(short int), cliSock, 1);
+		sendToCli( (void *)confirm, BUFSIZ, cliSock, 1);
 	}
 	
 	else {
 		// Tell Sender Client the user didn't exist
-		conf = 1;
-		sendToCli( (void *)&conf, sizeof(short int), cliSock, 1);
+		sendToCli( (void *)deny, BUFSIZ, cliSock, 1);
 	}
 }
 
 void handleBroadcast(int cliSock, struct userInfo usr){
 
 	// Send Acknowledgement
-	short int ack = 0;
-	sendToCli(  (void *)&ack, sizeof(short int), cliSock, 1);
+	sendToCli(  (void *)confirm, BUFSIZ, cliSock, 1);
 
 	// Receive Message To Send
 	short int msgSize = * ((short int *) getCliMsg(cliSock, sizeof(short int))) ;
@@ -224,13 +224,16 @@ void handleBroadcast(int cliSock, struct userInfo usr){
 		std::exit(-1); // TODO close stuff out
 	} 
 	// Send To All Other Clients
-	for( std::pair<std::string, int> elem : onlineUserSockets ){
+	char toSend[BUFSIZ];
+	memset(toSend, '\0', BUFSIZ);
+	strcpy(toSend, broadMsg);
 
+	for( std::pair<std::string, int> elem : onlineUserSockets ){
+		
 		if ( elem.first.compare(usr.UN) == 0) {
 			continue;
 		}
-		sendToCli( (void *)&msgSize, sizeof(short int), cliSock, 2);
-		sendToCli( (void *)broadMsg, msgSize, elem.second, 2) ;	
+		sendToCli( (void *) toSend, BUFSIZ, elem.second, 2) ;	
 	}
 	
 	// Unlock Data Structure		
@@ -240,7 +243,7 @@ void handleBroadcast(int cliSock, struct userInfo usr){
 	} 
 
 	// Acknowledge User
-	sendToCli( (void *)&ack, sizeof(short int), cliSock, 1);
+	sendToCli( (void *)confirm, BUFSIZ, cliSock, 1);
 }
 
 void * getCliMsg(int cliSock, int recSiz){
@@ -261,13 +264,12 @@ void * getCliMsg(int cliSock, int recSiz){
 	return ret;
 }
 
-struct userInfo checkUserbase(char * userNameIn){
+struct userInfo checkUserbase(std::string userName){
 
 	struct userInfo user;
 	user.UN = "";
 	user.PW = "";
 
-	std::string userName(userNameIn);
 	// Search Through File
 	std::ifstream ifs;
 	ifs.open("users.csv");
@@ -315,18 +317,22 @@ int storeUserInfo(struct userInfo user) {
 size_t sendToCli(void * toSend, int len, int cliFD, int flag){
 
 
-	char buf[len+1];
+	char buf[BUFSIZ];
+	memset(buf, '\0', BUFSIZ);
+
 	if (flag == 1)
 		strcpy(buf, "1");
 	else if (flag == 2)
 		strcpy(buf, "2");
+	else if (flag == 3)
+		strcpy(buf, "3");
 	else 
 		strcpy(buf, "0");
 
+	std::cout << "Non-Coded Message To Send:\n>" << (const char *) toSend << "<\n";
 	strcat(buf, (const char *) toSend);
-	
 
-    size_t sent = send(cliFD, (void *) buf, len+1, 0);
+    size_t sent = send(cliFD, (void *) buf, BUFSIZ, 0);
 	if ( sent == -1 ) {
 		std::cerr << "Error Sending Info To Client: " << strerror(errno) << std::endl;
 		std::exit(-1);
@@ -334,7 +340,7 @@ size_t sendToCli(void * toSend, int len, int cliFD, int flag){
 	
 	std::cout << "Sent " << sent << " bytes to client" << std::endl;
 
-        return sent;
+    return sent;
                 
 }
 
@@ -347,39 +353,30 @@ void * connection_handler(void * cliSockIn){
 	usrNameSize = * ((short int *) getCliMsg(cliSock, sizeof(short int)));
 	// Receive UserName
 	char *userName;
-	userName = (char *) getCliMsg(cliSock, usrNameSize + 1);
+	userName = (char *) getCliMsg(cliSock, usrNameSize);
 	std::string userNameString(userName);
-  //  std::cout <<  "Received UserName: " << userNameString << std::endl;
 	
 	// Create and Send Public Key
 	char * cliPubKey = getPubKey();
-//	std::cout << "Client's Public Key: " << cliPubKey << std::endl;
-	// Send Size of Public Key
-	int keySizeToSend = strlen(cliPubKey)+1;
-	sendToCli( (void *)&keySizeToSend, sizeof(int), cliSock, 1);
-	sendToCli( (void *)cliPubKey, keySizeToSend, cliSock, 1);
+	sendToCli( (void *)cliPubKey, BUFSIZ, cliSock, 1);
 
 
 	// Check If Exists
-	struct userInfo usr = checkUserbase(userName);
-//	std::cout << "User From File: " << usr.UN << ", " << usr.PW << std::endl;
+	struct userInfo usr = checkUserbase(userNameString);
 	// User Does Not Exist Yet
-	int confirm;
+	bool userExists;
+
 	if ( usr.UN.compare("") == 0) {
-	//	std::cout << "Creating New User...\n";
+		userExists = false;
 		usr.UN = userNameString ;
-		confirm = 1;
-        sendToCli((void *)&confirm, sizeof(int), cliSock, 1);   
+        sendToCli((void *)deny, BUFSIZ, cliSock, 1);   
                 
 	}
 	// User Exists
 	else {
-	//	std::cout << "Found User\n";
-		confirm = 0;
-        sendToCli((void *)&confirm, sizeof(int), cliSock, 1);
+		userExists = true;
+        sendToCli((void *)confirm, BUFSIZ, cliSock, 1);
 	}
-
-	
         
     // Receive Size of Password Hash From Client
 	short int passSize;
@@ -389,17 +386,15 @@ void * connection_handler(void * cliSockIn){
 	passHash = (char *) getCliMsg(cliSock, passSize);
 
         
-    //TODO decrypt password
+    // decrypt password
 	char * decrPass = decrypt(passHash); 
-   // std::cout << "Decrypted Password: " << decrPass << std::endl;
 	 
     // Check if Password Matches for existing user
-    if(confirm == 0) {
-        if( !strcmp(decrPass, usr.PW.c_str()) ) {
-            sendToCli((void *)&confirm, sizeof(int), cliSock, 1);
+    if(userExists) {
+        if( strcmp(decrPass, usr.PW.c_str())  == 0 ) {
+            sendToCli((void *)confirm, BUFSIZ, cliSock, 1);
         } else {
-            confirm = 1;
-            sendToCli((void *)&confirm, sizeof(int), cliSock, 1);  
+            sendToCli((void *)deny, BUFSIZ, cliSock, 1);  
         }
     } 
     // Set Password for new user 
@@ -412,9 +407,9 @@ void * connection_handler(void * cliSockIn){
     }
 
 	// Receive Client's Public Key
-	short int keySize = *  ((short int *) getCliMsg(cliSock, sizeof(short int)));
-	char * userPubKey = (char *) getCliMsg(cliSock, passSize);
-
+	int keySize = *  ((int *) getCliMsg(cliSock, sizeof(int)));
+	char * userPubKey = (char *) getCliMsg(cliSock, keySize);
+	
 	// Add Client's Public Key and UserName to Current Active Users
 	std::string usrPubKeyStr(userPubKey);
 	if ( pthread_mutex_lock(&lock) != 0 ) {
@@ -422,21 +417,12 @@ void * connection_handler(void * cliSockIn){
 		std::exit(-1); // TODO close stuff out
 	} 
 	onlineUserKeys.insert({usr.UN, usrPubKeyStr});
-	if ( pthread_mutex_unlock(&lock) != 0 ) {
-		std::cerr << "Mutex Error on Unlock()\n";
-		std::exit(-1); // TODO close stuff out
-	} 
-
-	if ( pthread_mutex_lock(&lock) != 0 ) {
-		std::cerr << "Mutex Error on Lock()\n";
-		std::exit(-1); // TODO close stuff out
-	} 
 	onlineUserSockets.insert({usr.UN, cliSock});
 	if ( pthread_mutex_unlock(&lock) != 0 ) {
 		std::cerr << "Mutex Error on Unlock()\n";
 		std::exit(-1); // TODO close stuff out
 	} 
-	
+
 	mainBoard(userPubKey, cliSock, usr);
 }
 
@@ -482,9 +468,6 @@ int getSock(std::string port){
 
 	return sockfd;
 }
-
-
-
 
 
 char * parseArgs(int argc, char ** argv){
