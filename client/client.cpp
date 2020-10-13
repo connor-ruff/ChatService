@@ -16,22 +16,17 @@
 #include<unistd.h>
 #include<fstream>
 #include<sstream>
+#include<pthread.h>
 #include<stdbool.h>
+#include<queue>
+#include<cstdint>
 #include"../pg3lib.h"
-/*typedef struct MessageQueue MessageQueue;
-struct MessageQueue {
-	char	name[BUFSIZ];
-	char 	host[BUFSIZ];
-	char	port[BUFSIZ];
 
-	Queue* outgoing;
-	Queue* incoming;
-	bool shutdown;
+pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t cond = PTHREAD_COND_INITIALIZER;
 
-	Thread pushThread;
-	Thread pullThread;
 
-};*/
+std::queue <void *> client_messages;
 
 void help() {
 	printf("Please enter a command (BM: Broadcast Messaging, PM: Private Messaging, EX: Exit\n");
@@ -39,6 +34,63 @@ void help() {
 
 void usage() {
 	printf("./client [<host> <port> <username>]\n");
+}
+
+void *inbound_messager(void *arg){
+	intptr_t servFD = (intptr_t)arg;
+	char buf[BUFSIZ];
+	char bufFinal[BUFSIZ-1];
+	int rec;
+	while(true){
+		/* note: this is going to need to handle the padding properly */
+		bzero(buf, sizeof(buf));
+		rec = recv(servFD, buf, BUFSIZ, 0);
+		char flag = buf[0];
+		
+		bzero(bufFinal, sizeof(bufFinal));
+		bufFinal[BUFSIZ-1];
+		for (int i=1; i <= rec; ++i)
+			bufFinal[i-1] = buf[i];
+		std::cout << "Final Buffer: " << bufFinal <<std::endl;
+		if (flag == '1'){
+			std::cout << "message added to queue: "<< bufFinal << std::endl;
+			void * dummy = bufFinal;
+			pthread_mutex_lock(&lock);
+			client_messages.push(dummy);
+			pthread_cond_signal(&cond);
+			pthread_mutex_unlock(&lock);
+		}
+		else if (flag == '2'){
+			std::cout << "******* message recieved " << bufFinal << std::endl;
+		}
+		else{
+			std::cout << "an error ocurred reading in stuff\n";
+			continue;
+		}
+	}
+	return 0;
+}
+
+void *get_server_message(bool sizeMatters){
+	//if sizeMatters then we need to pop off twice(once for length of next thing once for the next thing)
+	if (sizeMatters){
+		pthread_mutex_lock(&lock)
+		while (client_messages.empty()){
+			pthread_cond_wait(&cond, &lock);
+		}
+		char buffer[BUFSIZ] = client_messages.pop();
+		buffer[sizeof(short int)] = '\0';
+		short int size = (short int)buffer;
+
+		while (client_messages.empty(){
+			pthread_cond_wait(&cond, &lock);
+		}
+		bzero(buffer, sizeof(buffer));
+		buffer = client_messages.pop();
+		pthread_mutex_unlock(&lock);
+		return buffer;
+	}
+
 }
 
 int create_socket(char* host, char* portstr){
@@ -175,6 +227,11 @@ int main(int argc, char* argv[]){
 
 	/* Create thread */
 	pthread_t inbound;
+	if ((pthread_create(&inbound, NULL, inbound_messager, (void *)&servFD) < 0) < 0){
+		std::cerr << "Could not create thread" << std::endl;
+		return EXIT_FAILURE;
+	}
+
 
 	
 }
