@@ -69,10 +69,16 @@ void *inbound_messager(void *arg){
 			pthread_mutex_unlock(&lock);
 		}
 		else if (flag == '2'){// unencrypted BM
-			std::cout << "******* incoming public message ********* " << bufFinal << std::endl;
+			std::cout << "\n******* incoming public message ********* " << bufFinal << "\n>";
+			help();
+			std::cout << ">";
+			fflush(stdout);
 		}	else if (flag == '3'){// encrypted PM
 			char * result = decrypt(bufFinal);
-			std::cout << "******* incoming private message ******** " << result << std::endl;
+			std::cout << "\n******* incoming private message ******** " << result << "\n>";
+			help();
+			std::cout << ">";
+			fflush(stdout);
 		}
 		else{
 			std::cout << "Buf: " << bufMiddle << " with flag " << flag <<std::endl;
@@ -163,14 +169,13 @@ void handle_user_connection(int servFD, char* username){
 
 	// determine if we need to create new password
 	char *resp = get_server_message();
-	std::cout << "Response: " << resp << std::endl;
 
 	std::string password;
 	if (strcmp("CON", resp) == 0){
 		// username found
 		bool accepted = false;
+		std::cout << "Existing user\n";
 		while(accepted == false) {
-			std::cout << "Existing user\n";
 			std::cout << "Enter password: ";
 			std::cin >> password;
 
@@ -311,7 +316,6 @@ void get_user_instructions(int servFD){
 		help();
 		std::cout << ">";
 		std::cin >> input;
-		std::cout << "input: " << input << std::endl;
 		if (input.compare("BM") == 0){
 			handle_bm(servFD);
 		} else if (input.compare("PM") == 0) {
