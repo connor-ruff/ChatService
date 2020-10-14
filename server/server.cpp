@@ -62,42 +62,41 @@ int main(int argc, char ** argv){
 	int i = 0;
 	while( (cliSock = accept(sockfd, (struct sockaddr *)&client, (socklen_t *)&c)) ) {
 
-		std::cout << "Accepted Connection\n" ; // TODO debug info
+	//	std::cout << "Accepted Connection\n" ; // TODO debug info
 
+		// Create New Thread
 		if ( pthread_create( &thread_id[i], NULL, connection_handler, (void *)&cliSock) < 0) {
 			std::cerr << "Could Not Create Thread" << std::endl;
 			continue;
 		}
-
-
+		
 		if (cliSock < 0){
 			std::cerr << "Accept Failed\n";
 			std::exit(-1);
 		}
 		i++;
-
 	}
 
-//	pthread_join(thread_id[i], NULL);
+	
+
 	return 0;
 }
 
 void mainBoard(char * cliPubKey, int cliSock, struct userInfo usr){
 
 	// Receive Operation From Client
-	std::cout << "(mainBoard) Made it to mainBoard function\n";	
 	bool exit = false;
 	while(!exit){
 		// Get The Command
 		short int command = * ( (short int *) getCliMsg(cliSock, sizeof(short int)));
+
+		// Handle Command
 		switch (command) {
 
 			case 1:            // BroadCast
-				std::cout << "(mainBoard) Got Broadcast\n";
 				handleBroadcast(cliSock, usr);
 				break;
 			case 2:            // PM
-				std::cout << "(mainBoard) Got Private\n";
 				handlePrivate(cliSock, usr);
 				break;
 			case 3:
@@ -106,6 +105,7 @@ void mainBoard(char * cliPubKey, int cliSock, struct userInfo usr){
 					std::cerr << "Mutex Error on Lock()\n";
 					std::exit(-1); // TODO close stuff out
 				} 
+				// Clear Data Structures For That User
 				onlineUserKeys.erase(usr.UN);
 				onlineUserSockets.erase(usr.UN);
 				if ( pthread_mutex_unlock(&lock) != 0 ) {
@@ -129,7 +129,8 @@ void handlePrivate(int cliSock, struct userInfo usr){
 		std::cerr << "Mutex Error on Lock()\n";
 		std::exit(-1); // TODO close stuff out
 	}
-	 
+	
+	// Get List of Users
 	for( std::pair<std::string, int> elem : onlineUserSockets ){
 		
 		if ( elem.first.compare(usr.UN) == 0) {
@@ -164,14 +165,13 @@ void handlePrivate(int cliSock, struct userInfo usr){
 	// Receive Message To Be Sent
 	short int msgSize = * ((short int *) getCliMsg(cliSock, sizeof(short int)));
 	char * msgToSend = (char *) getCliMsg(cliSock, msgSize);
-	std::cout << "(private message) Message to send: " << msgToSend << std::endl;
-	// Check If User Exists
 	// Lock Data Struct
 	if ( pthread_mutex_lock(&lock) != 0 ) {
 		std::cerr << "Mutex Error on Lock()\n";
 		std::exit(-1); // TODO close stuff out
 	}
 	 
+	// Check If User Exists
 	bool valid = false;
 	int receiverSocket;
 	for( std::pair<std::string, int> elem : onlineUserSockets ){
@@ -257,7 +257,7 @@ void * getCliMsg(int cliSock, int recSiz){
 		std::exit(-1);
 	}
 
-	std::cout << "Received " << received << " bytes from client" << std::endl;
+//	std::cout << "Received " << received << " bytes from client" << std::endl;
 
 	buf[received] = '\0';
 	void * ret = buf;
@@ -279,6 +279,7 @@ struct userInfo checkUserbase(std::string userName){
 		std::exit(-1);
 	}
 
+	// Look for username
 	std::string line;
 	std::string delim = ",";
 	std::string token;
@@ -329,7 +330,6 @@ size_t sendToCli(void * toSend, int len, int cliFD, int flag){
 	else 
 		strcpy(buf, "0");
 
-	std::cout << "Non-Coded Message To Send:\n>" << (const char *) toSend << "<\n";
 	strcat(buf, (const char *) toSend);
 
     size_t sent = send(cliFD, (void *) buf, BUFSIZ, 0);
@@ -338,7 +338,7 @@ size_t sendToCli(void * toSend, int len, int cliFD, int flag){
 		std::exit(-1);
 	} 
 	
-	std::cout << "Sent " << sent << " bytes to client" << std::endl;
+//	std::cout << "Sent " << sent << " bytes to client" << std::endl;
 
     return sent;
                 
