@@ -29,14 +29,19 @@ pthread_cond_t cond = PTHREAD_COND_INITIALIZER;
 std::queue <char *> client_messages;
 
 void help() {
+	/* the prompt */
 	printf("Please enter a command (BM: Broadcast Messaging, PM: Private Messaging, EX: Exit\n");
 }
 
 void usage() {
+	/* usage function */
 	printf("./client [<host> <port> <username>]\n");
 }
 
 void *inbound_messager(void *arg){
+	/* This is the command that recieves all inbound messages from the server
+	 * and routes accordingly. If it is meant for the other thread, it will
+	 * put the message on a stack in a threadsafe manner */
 	int servFD = *(int*)arg;
 	char buf[BUFSIZ];
 	char bufMiddle[BUFSIZ];
@@ -50,16 +55,13 @@ void *inbound_messager(void *arg){
 			strcat(bufMiddle, buf);
 			bzero(buf, sizeof(buf));
 		}
-		std::cout << bufMiddle << std::endl;
 		char flag = bufMiddle[0];
 		
 		bzero(bufFinal, sizeof(bufFinal));
 		bufFinal[BUFSIZ-1];
 		for (int i=1; i <= BUFSIZ; ++i)
 			bufFinal[i-1] = bufMiddle[i];
-		std::cout << "Final Buffer: " << bufFinal <<std::endl;
 		if (flag == '1'){
-			std::cout << "message added to queue: "<< bufFinal << std::endl;
 			char * dummy = bufFinal;
 			pthread_mutex_lock(&lock);
 			client_messages.push(dummy);
@@ -67,10 +69,10 @@ void *inbound_messager(void *arg){
 			pthread_mutex_unlock(&lock);
 		}
 		else if (flag == '2'){// unencrypted BM
-			std::cout << "******* message recieved " << bufFinal << std::endl;
+			std::cout << "******* incoming public message ********* " << bufFinal << std::endl;
 		}	else if (flag == '3'){// encrypted PM
 			char * result = decrypt(bufFinal);
-			std::cout << "******* message recieved " << result << std::endl;
+			std::cout << "******* incoming private message ******** " << result << std::endl;
 		}
 		else{
 			std::cout << "Buf: " << bufMiddle << " with flag " << flag <<std::endl;
@@ -83,15 +85,13 @@ void *inbound_messager(void *arg){
 }
 
 char *get_server_message(){
-	//if sizeMatters then we need to pop off twice(once for length of next thing once for the next thing)
-	std::cout << "Getting server message\n";
+	/* abstraction to get a message from the server. It pops off the queue and will yield
+	 * the lock when the queue is empty and wait */
 	pthread_mutex_lock(&lock);
 	while (client_messages.empty()){
 		pthread_cond_wait(&cond, &lock);
 	}
 
-	//client_messages.front();
-	//char buffer[BUFSIZ] = client_messages.pop();
 	char * resp = client_messages.front();
 	client_messages.pop();
 	pthread_mutex_unlock(&lock);
@@ -101,6 +101,7 @@ char *get_server_message(){
 }
 
 int create_socket(char* host, char* portstr){
+	/* returns a socket connection */
 	struct hostent *hp; // host info
 	struct sockaddr_in servaddr; // server address
 	socklen_t addrlen = sizeof(servaddr);
@@ -135,8 +136,8 @@ int create_socket(char* host, char* portstr){
 
 
 size_t sendToServ(int sockFD, void * toSend, int size){
+	/* abstraction to send data to the server */
 
-//	std::cout << "in send function" << std::endl;
 	int bytesSent;
 
 	bytesSent = send(sockFD, toSend, size, 0) ;
@@ -144,12 +145,12 @@ size_t sendToServ(int sockFD, void * toSend, int size){
 		std::cerr << "Error Sending To Server: " << strerror(errno) << std::endl;
 	}
 
-//	std::cout << "Sent " << bytesSent << " bytes " << std::endl;
 	return bytesSent;
 
 }
 
 void handle_user_connection(int servFD, char* username){
+	/* establish the users connection with server as identified user */
 	// send length 
 	short int userlen = strlen(username) + 1;
 	sendToServ(servFD, (void*)&userlen, sizeof(userlen));
@@ -159,7 +160,7 @@ void handle_user_connection(int servFD, char* username){
 	// Receive Public Key Size and Public Key
 	char pubKey[4096];
 	strcpy(pubKey, get_server_message());
-	std::cout << "pubkey: " << pubKey << std::endl;
+
 	// determine if we need to create new password
 	char *resp = get_server_message();
 	std::cout << "Response: " << resp << std::endl;
@@ -179,10 +180,10 @@ void handle_user_connection(int servFD, char* username){
 
 			// send length (including null character)
 			short int passlen = strlen(encrPass)+1;
-		//	std::cout << "Password length to send: " << passlen << std::endl;
+
 			sendToServ(servFD, (void *)&passlen, sizeof(short int));
 			// send password
-		//	std::cout << "Your Password: " << c_pass << std::endl;
+
 			sendToServ(servFD, (void *)encrPass, passlen);
 			// recieve confirmation if password was accepted
 			resp = get_server_message();
@@ -195,18 +196,18 @@ void handle_user_connection(int servFD, char* username){
 		std::cout << "Creating new user\n";
 		std::cout << "Enter password: ";
 		std::cin >> password;
+
 		// encrypt password
 		char * encrPass = encrypt((char *)password.c_str(), pubKey);
+
 		// send length (including null character)
 		short int passlen = strlen(encrPass)+1;
 		// send length to server
-		std::cout << "encr password: " << encrPass << " passslen: " << passlen << std::endl;
 		sendToServ(servFD, (void *)&passlen, sizeof(short int));
 		// send password
-		std::cout << "length sent\n";
 		sendToServ(servFD, (void *)encrPass, passlen);
-		std::cout << "password sent\n";
 	}
+
 	// create and send pubkey
 	char * servPubKey = getPubKey();
 	// send size of pubkey
@@ -216,6 +217,8 @@ void handle_user_connection(int servFD, char* username){
 }
 
 void handle_bm(int servFD){
+	/* handle BM. Basically sends broadcast message to every online user */
+
 	short int signal = 1;
 	sendToServ(servFD, (void *)&signal, sizeof(short int));
 	// recieve acknowledgement
@@ -225,7 +228,6 @@ void handle_bm(int servFD){
 	std::cin.ignore();
 	getline(std::cin, message);
 
-	std::cout << "The message is: " << message << std::endl;
 	// send the message
 	short int messageSize = strlen(message.c_str())+1;
 	sendToServ(servFD, (void *)&messageSize, sizeof(short int));
@@ -236,6 +238,7 @@ void handle_bm(int servFD){
 }
 
 void handle_pm(int servFD){
+	/* handle PM command. Send a private message */
 	short int signal = 2;
 	sendToServ(servFD, (void *)&signal, sizeof(short int));
 	char * users = get_server_message();
@@ -289,7 +292,19 @@ void handle_pm(int servFD){
 }
 
 
+void handle_ex(int servFD){
+	/* handle the EX command. Basically just quit */
+	short int signal = 3;
+	sendToServ(servFD, (void *)&signal, sizeof(short int));
+	close(servFD);
+	std::cout << "Bye!\n";
+	exit(EXIT_SUCCESS);
+
+}
+
+
 void get_user_instructions(int servFD){
+	/* Endless loop to get user instructions and call handlers */
 	std::string input;
 	while (true){
 		std::cout << ">";
@@ -298,17 +313,12 @@ void get_user_instructions(int servFD){
 		std::cin >> input;
 		std::cout << "input: " << input << std::endl;
 		if (input.compare("BM") == 0){
-			std::cout << "Handling BM" << std::endl;
 			handle_bm(servFD);
-		}
-		else if (input.compare("PM") == 0){
-			std::cout << "Handling PM\n";
+		} else if (input.compare("PM") == 0) {
 			handle_pm(servFD);
-		}
-		else if (input.compare("EX") == 0){
-			std::cout << "Handling EX\n";
-		}
-		else{
+		} else if (input.compare("EX") == 0) {
+			handle_ex(servFD);
+		} else {
 			std::cout << "The function you mentioned does not exist\n";
 		}
 	}
@@ -317,6 +327,7 @@ void get_user_instructions(int servFD){
 
 
 int main(int argc, char* argv[]){
+	/* main driver function */
 	/* Get Input */
 	char *host;
 	char *port;
@@ -341,12 +352,11 @@ int main(int argc, char* argv[]){
 		std::cerr << "Could not create thread" << std::endl;
 		return EXIT_FAILURE;
 	}	
-	std::cout << " Thread created" << std::endl;	
+	
 	/* determine if new user or not and handle that */
-	handle_user_connection(servFD, username);
-	std::cout << "user created successfully\n";
+	handle_user_connection(servFD, username);	// this establishes socket connections
 
-	get_user_instructions(servFD);
+	get_user_instructions(servFD);	// This has the logic for getting and routing instructions
 
 
 
