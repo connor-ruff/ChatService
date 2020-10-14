@@ -1,7 +1,8 @@
-
+$(CC)= g++
+$(FLAGS)= -std=c++11 -pthread -lcrypto -lz
 
 client:
-	g++ client.cpp -o client -std=c++11 -pthread -lcrypto -lz
+	$(CC) client.cpp -o client $(FLAGS) 
 
 clean:
 	rm -f client
