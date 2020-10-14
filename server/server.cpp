@@ -148,19 +148,30 @@ void handlePrivate(int cliSock, struct userInfo usr){
 	// Send Full List To Client
 	sendToCli( (void *)userList.c_str(), BUFSIZ, cliSock, 1) ;
 
-	// Get UserName To Send To
-	short int userNameSize = * ((short int *) getCliMsg(cliSock, sizeof(short int))) ;
-	char * usrToSendTo = (char *) getCliMsg(cliSock, userNameSize);
 
 	// Get PubKey For That User and Send
-	std::string usrToSendStr(usrToSendTo) ;
-	std::string receiverPubKey = "";
-	receiverPubKey = receiverPubKey + onlineUserKeys[usrToSendStr] ;
-	int pubKeySize = receiverPubKey.length() + 1;
-	if ( pubKeySize == 1){
-		receiverPubKey = "DEN";
+	bool foundUser = false;
+	std::string receiverPubKey;
+	short int userNameSize ;
+	char * usrToSendTo ;
+	std::string usrToSendStr; 
+	int pubKeySize;
+	while(!foundUser){
+		// Get UserName To Send To
+		userNameSize = * ((short int *) getCliMsg(cliSock, sizeof(short int))) ;
+		usrToSendTo = (char *) getCliMsg(cliSock, userNameSize);
+		usrToSendStr = usrToSendTo;
+		receiverPubKey = "";
+		receiverPubKey = receiverPubKey + onlineUserKeys[usrToSendStr] ;
+		pubKeySize = receiverPubKey.length() + 1;
+		if ( pubKeySize == 1){
+			receiverPubKey = "DEN";
+			sendToCli( (void *)receiverPubKey.c_str(), BUFSIZ, cliSock, 1);
+			continue;
+		}
+		foundUser = true;
+		sendToCli( (void *)receiverPubKey.c_str(), BUFSIZ, cliSock, 1);
 	}
-	sendToCli( (void *)receiverPubKey.c_str(), BUFSIZ, cliSock, 1);
 
 	// Receive Message To Be Sent
 	short int msgSize = * ((short int *) getCliMsg(cliSock, sizeof(short int)));
@@ -380,31 +391,36 @@ void * connection_handler(void * cliSockIn){
         
     // Receive Size of Password Hash From Client
 	short int passSize;
-	passSize = * ((short int *) getCliMsg(cliSock, sizeof(short int)));
-	// Receive Password Hash
 	char *passHash;
-	passHash = (char *) getCliMsg(cliSock, passSize);
+	char * decrPass;
+	bool passwordGood = false;
+	while(!passwordGood){
+		passSize = * ((short int *) getCliMsg(cliSock, sizeof(short int)));
+		// Receive Password Hash
+		passHash = (char *) getCliMsg(cliSock, passSize);
 
-        
-    // decrypt password
-	char * decrPass = decrypt(passHash); 
+		// decrypt password
+		decrPass = decrypt(passHash); 
 	 
-    // Check if Password Matches for existing user
-    if(userExists) {
-        if( strcmp(decrPass, usr.PW.c_str())  == 0 ) {
-            sendToCli((void *)confirm, BUFSIZ, cliSock, 1);
-        } else {
-            sendToCli((void *)deny, BUFSIZ, cliSock, 1);  
-        }
-    } 
-    // Set Password for new user 
-    else {
-		std::string temp(decrPass);
-        usr.PW = temp;
-        if (storeUserInfo(usr) == -1) {
-            std::cerr << "Could not create new user: " << strerror(errno) << std::endl;   
-        }
-    }
+		// Check if Password Matches for existing user
+		if(userExists) {
+			if( strcmp(decrPass, usr.PW.c_str())  == 0 ) {
+				passwordGood = true;
+				sendToCli((void *)confirm, BUFSIZ, cliSock, 1);
+		 } else {
+				sendToCli((void *)deny, BUFSIZ, cliSock, 1);  
+		 }
+		} 
+		// Set Password for new user 
+		else {
+			std::string temp(decrPass);
+			usr.PW = temp;
+			if (storeUserInfo(usr) == -1) {
+			 std::cerr << "Could not create new user: " << strerror(errno) << std::endl;   
+		 }
+			passwordGood = true;
+		}
+	}
 
 	// Receive Client's Public Key
 	int keySize = *  ((int *) getCliMsg(cliSock, sizeof(int)));
